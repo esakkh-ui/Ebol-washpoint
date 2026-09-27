@@ -21,7 +21,7 @@ jobs:
           cache: true
 
       - name: Create Android project files
-        run: flutter create --platforms=android .
+        run: flutter create --project-name ebol_washpoint --platforms=android .
 
       - name: Install dependencies
         run: flutter pub get
