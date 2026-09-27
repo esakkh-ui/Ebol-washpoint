@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,165 +8,166 @@ void main() {
   runApp(const EbolWashpointApp());
 }
 
-class EbolWashpointApp extends StatelessWidget {
-  const EbolWashpointApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'EBOL WASHPOINT',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.blue,
-        scaffoldBackgroundColor: const Color(0xFFF5F7FA),
-      ),
-      home: const HomePage(),
-    );
-  }
-}
-
 class Sale {
+  final String id;
+  final DateTime date;
   final String vehicle;
+  final String plate;
+  final int basePrice;
   final List<String> services;
   final int total;
-  final DateTime date;
+  final String payment;
 
   Sale({
+    required this.id,
+    required this.date,
     required this.vehicle,
+    required this.plate,
+    required this.basePrice,
     required this.services,
     required this.total,
-    required this.date,
+    required this.payment,
   });
 
   Map<String, dynamic> toJson() => {
+        'id': id,
+        'date': date.toIso8601String(),
         'vehicle': vehicle,
+        'plate': plate,
+        'basePrice': basePrice,
         'services': services,
         'total': total,
-        'date': date.toIso8601String(),
+        'payment': payment,
       };
 
   factory Sale.fromJson(Map<String, dynamic> j) => Sale(
-        vehicle: j['vehicle'],
-        services: List<String>.from(j['services']),
-        total: j['total'],
+        id: j['id'],
         date: DateTime.parse(j['date']),
+        vehicle: j['vehicle'],
+        plate: j['plate'],
+        basePrice: j['basePrice'],
+        services: List<String>.from(j['services'] ?? []),
+        total: j['total'],
+        payment: j['payment'] ?? 'Tunai',
       );
 }
 
 class Expense {
+  final String id;
+  final DateTime date;
+  final String fund;
   final String category;
   final String note;
   final int amount;
-  final DateTime date;
 
   Expense({
+    required this.id,
+    required this.date,
+    required this.fund,
     required this.category,
     required this.note,
     required this.amount,
-    required this.date,
   });
 
   Map<String, dynamic> toJson() => {
+        'id': id,
+        'date': date.toIso8601String(),
+        'fund': fund,
         'category': category,
         'note': note,
         'amount': amount,
-        'date': date.toIso8601String(),
       };
 
   factory Expense.fromJson(Map<String, dynamic> j) => Expense(
-        category: j['category'],
-        note: j['note'],
-        amount: j['amount'],
+        id: j['id'],
         date: DateTime.parse(j['date']),
+        fund: j['fund'],
+        category: j['category'],
+        note: j['note'] ?? '',
+        amount: j['amount'],
       );
 }
 
-class AppStore extends ChangeNotifier {
-  List<Sale> sales = [];
-  List<Expense> expenses = [];
-
-  Future<void> load() async {
-    final p = await SharedPreferences.getInstance();
-    final s = p.getString('sales');
-    final e = p.getString('expenses');
-    if (s != null) {
-      sales = (jsonDecode(s) as List)
-          .map((x) => Sale.fromJson(Map<String, dynamic>.from(x)))
-          .toList();
-    }
-    if (e != null) {
-      expenses = (jsonDecode(e) as List)
-          .map((x) => Expense.fromJson(Map<String, dynamic>.from(x)))
-          .toList();
-    }
-    notifyListeners();
-  }
-
-  Future<void> addSale(Sale sale) async {
-    sales.insert(0, sale);
-    await _save();
-  }
-
-  Future<void> addExpense(Expense expense) async {
-    expenses.insert(0, expense);
-    await _save();
-  }
-
-  Future<void> _save() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('sales', jsonEncode(sales.map((x) => x.toJson()).toList()));
-    await p.setString(
-        'expenses', jsonEncode(expenses.map((x) => x.toJson()).toList()));
-    notifyListeners();
-  }
-}
-
-final store = AppStore();
-
-String rupiah(int n) =>
-    NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0)
-        .format(n);
-
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+class EbolWashpointApp extends StatefulWidget {
+  const EbolWashpointApp({super.key});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<EbolWashpointApp> createState() => _EbolWashpointAppState();
 }
 
-class _HomePageState extends State<HomePage> {
-  int index = 0;
+class _EbolWashpointAppState extends State<EbolWashpointApp> {
+  final List<Sale> sales = [];
+  final List<Expense> expenses = [];
+  int tab = 0;
 
   @override
   void initState() {
     super.initState();
-    store.load();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    final rawSales = p.getString('sales');
+    final rawExpenses = p.getString('expenses');
+    if (rawSales != null) {
+      sales.addAll((jsonDecode(rawSales) as List)
+          .map((e) => Sale.fromJson(Map<String, dynamic>.from(e))));
+    }
+    if (rawExpenses != null) {
+      expenses.addAll((jsonDecode(rawExpenses) as List)
+          .map((e) => Expense.fromJson(Map<String, dynamic>.from(e))));
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _save() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setString('sales', jsonEncode(sales.map((e) => e.toJson()).toList()));
+    await p.setString(
+        'expenses', jsonEncode(expenses.map((e) => e.toJson()).toList()));
+  }
+
+  void addSale(Sale sale) {
+    setState(() => sales.insert(0, sale));
+    _save();
+  }
+
+  void addExpense(Expense expense) {
+    setState(() => expenses.insert(0, expense));
+    _save();
   }
 
   @override
   Widget build(BuildContext context) {
     final pages = [
-      DashboardPage(onKasir: () => setState(() => index = 1)),
-      const KasirPage(),
-      const TransactionsPage(),
-      const ExpensesPage(),
-      const ReportsPage(),
+      HomePage(sales: sales, expenses: expenses, onOpenKasir: () => setState(() => tab = 1)),
+      KasirPage(onSave: addSale),
+      TransactionsPage(sales: sales),
+      KasPage(sales: sales, expenses: expenses, onSaveExpense: addExpense),
+      ReportPage(sales: sales, expenses: expenses),
     ];
 
-    return AnimatedBuilder(
-      animation: store,
-      builder: (_, __) => Scaffold(
-        body: pages[index],
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'EBOL WASHPOINT',
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF155EEF)),
+        scaffoldBackgroundColor: const Color(0xFFF7F8FC),
+        fontFamily: 'Roboto',
+      ),
+      home: Scaffold(
+        body: SafeArea(child: pages[tab]),
         bottomNavigationBar: NavigationBar(
-          selectedIndex: index,
-          onDestinationSelected: (i) => setState(() => index = i),
+          selectedIndex: tab,
+          onDestinationSelected: (i) => setState(() => tab = i),
           destinations: const [
-            NavigationDestination(icon: Icon(Icons.dashboard_outlined), label: 'Home'),
-            NavigationDestination(icon: Icon(Icons.point_of_sale), label: 'Kasir'),
-            NavigationDestination(icon: Icon(Icons.receipt_long), label: 'Transaksi'),
-            NavigationDestination(icon: Icon(Icons.payments_outlined), label: 'Biaya'),
-            NavigationDestination(icon: Icon(Icons.bar_chart), label: 'Laporan'),
+            NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Home'),
+            NavigationDestination(icon: Icon(Icons.point_of_sale_rounded), label: 'Kasir'),
+            NavigationDestination(icon: Icon(Icons.receipt_long_rounded), label: 'Transaksi'),
+            NavigationDestination(icon: Icon(Icons.account_balance_wallet_rounded), label: 'Kas'),
+            NavigationDestination(icon: Icon(Icons.bar_chart_rounded), label: 'Laporan'),
           ],
         ),
       ),
@@ -173,84 +175,223 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class DashboardPage extends StatelessWidget {
-  final VoidCallback onKasir;
-  const DashboardPage({super.key, required this.onKasir});
+String rupiah(int n) {
+  return NumberFormat.currency(
+    locale: 'id_ID',
+    symbol: 'Rp ',
+    decimalDigits: 0,
+  ).format(n);
+}
+
+String dateText(DateTime d) => DateFormat('dd MMM yyyy, HH:mm', 'id_ID').format(d);
+
+int sumSales(List<Sale> sales) => sales.fold(0, (a, b) => a + b.total);
+
+int sumFundExpenses(List<Expense> e, String fund) =>
+    e.where((x) => x.fund == fund).fold(0, (a, b) => a + b.amount);
+
+class HomePage extends StatelessWidget {
+  final List<Sale> sales;
+  final List<Expense> expenses;
+  final VoidCallback onOpenKasir;
+
+  const HomePage({
+    super.key,
+    required this.sales,
+    required this.expenses,
+    required this.onOpenKasir,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final todaySales = store.sales.where((x) =>
-        x.date.year == now.year &&
-        x.date.month == now.month &&
-        x.date.day == now.day);
-    final todayExp = store.expenses.where((x) =>
-        x.date.year == now.year &&
-        x.date.month == now.month &&
-        x.date.day == now.day);
-    final omzet = todaySales.fold<int>(0, (a, b) => a + b.total);
-    final biaya = todayExp.fold<int>(0, (a, b) => a + b.amount);
+    final omzet = sumSales(sales);
+    final modalIn = (omzet * .30).round();
+    final daruratIn = (omzet * .02).round();
+    final operasionalIn = omzet - modalIn - daruratIn;
 
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text('EBOL WASHPOINT',
-              style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Text(DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(now)),
-          const SizedBox(height: 22),
-          Row(children: [
-            Expanded(child: StatCard('Omzet Hari Ini', rupiah(omzet), Icons.trending_up)),
-            const SizedBox(width: 12),
-            Expanded(child: StatCard('Kendaraan', '${todaySales.length}', Icons.directions_car)),
-          ]),
-          const SizedBox(height: 12),
-          Row(children: [
-            Expanded(child: StatCard('Pengeluaran', rupiah(biaya), Icons.money_off)),
-            const SizedBox(width: 12),
-            Expanded(child: StatCard('Laba Bersih', rupiah(omzet - biaya), Icons.account_balance_wallet)),
-          ]),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: onKasir,
-            icon: const Icon(Icons.point_of_sale),
-            label: const Padding(
-              padding: EdgeInsets.all(14),
-              child: Text('BUKA KASIR', style: TextStyle(fontSize: 17)),
+    final modalOut = sumFundExpenses(expenses, 'Kas Modal');
+    final daruratOut = sumFundExpenses(expenses, 'Dana Darurat');
+    final opOut = sumFundExpenses(expenses, 'Kas Operasional');
+
+    final profit = operasionalIn - opOut;
+    final kasModal = modalIn - modalOut;
+    final kasDarurat = daruratIn - daruratOut;
+    final kasOp = operasionalIn - opOut;
+
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+          sliver: SliverToBoxAdapter(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      Text('EBOL WASHPOINT',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                      SizedBox(height: 4),
+                      Text('Dashboard',
+                          style: TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
+                    ],
+                  ),
+                ),
+                CircleAvatar(
+                  radius: 24,
+                  child: Icon(Icons.local_car_wash_rounded),
+                )
+              ],
             ),
           ),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.all(16),
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              children: [
+                _heroCard(context, omzet, profit, onOpenKasir),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(child: _moneyCard('Kas Modal', kasModal, Icons.inventory_2_rounded)),
+                    const SizedBox(width: 10),
+                    Expanded(child: _moneyCard('Dana Darurat', kasDarurat, Icons.health_and_safety_rounded)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _wideMoneyCard('Kas Operasional', kasOp, Icons.account_balance_wallet_rounded),
+                const SizedBox(height: 18),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Alokasi Omzet',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(height: 10),
+                _allocationRow('Kas Modal', modalIn, '30%'),
+                _allocationRow('Dana Darurat', daruratIn, '2%'),
+                _allocationRow('Kas Operasional', operasionalIn, '68%'),
+                const SizedBox(height: 18),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Ringkasan',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                ),
+                const SizedBox(height: 10),
+                _summaryTile('Transaksi', '${sales.length}', Icons.receipt_long_rounded),
+                _summaryTile('Pengeluaran', rupiah(expenses.fold(0, (a, b) => a + b.amount)),
+                    Icons.payments_outlined),
+                _summaryTile('Profit Bersih', rupiah(profit), Icons.trending_up_rounded),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _heroCard(BuildContext context, int omzet, int profit, VoidCallback open) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFF155EEF), Color(0xFF4F7CFF)]),
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('OMZET', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text(rupiah(omzet),
+              style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Text('Profit bersih\n${rupiah(profit)}',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              ),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: const Color(0xFF155EEF)),
+                onPressed: open,
+                icon: const Icon(Icons.add),
+                label: const Text('Kasir'),
+              )
+            ],
+          )
         ],
+      ),
+    );
+  }
+
+  Widget _moneyCard(String title, int value, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, size: 24),
+        const SizedBox(height: 12),
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        const SizedBox(height: 4),
+        Text(rupiah(value), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+      ]),
+    );
+  }
+
+  Widget _wideMoneyCard(String title, int value, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(children: [
+        CircleAvatar(child: Icon(icon)),
+        const SizedBox(width: 14),
+        Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800))),
+        Text(rupiah(value), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+      ]),
+    );
+  }
+
+  Widget _allocationRow(String name, int value, String pct) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        padding: const EdgeInsets.all(15),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
+        child: Row(children: [
+          Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w700))),
+          Text(pct, style: const TextStyle(color: Colors.black54)),
+          const SizedBox(width: 16),
+          Text(rupiah(value), style: const TextStyle(fontWeight: FontWeight.w900)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _summaryTile(String title, String value, IconData icon) {
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: CircleAvatar(child: Icon(icon, size: 20)),
+        title: Text(title),
+        trailing: Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
       ),
     );
   }
 }
 
-class StatCard extends StatelessWidget {
-  final String title, value;
-  final IconData icon;
-  const StatCard(this.title, this.value, this.icon, {super.key});
-
-  @override
-  Widget build(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(icon),
-            const SizedBox(height: 10),
-            Text(title, style: const TextStyle(fontSize: 12)),
-            const SizedBox(height: 4),
-            FittedBox(
-              alignment: Alignment.centerLeft,
-              child: Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ]),
-        ),
-      );
-}
-
 class KasirPage extends StatefulWidget {
-  const KasirPage({super.key});
+  final ValueChanged<Sale> onSave;
+  const KasirPage({super.key, required this.onSave});
 
   @override
   State<KasirPage> createState() => _KasirPageState();
@@ -258,241 +399,439 @@ class KasirPage extends StatefulWidget {
 
 class _KasirPageState extends State<KasirPage> {
   String vehicle = 'Mobil';
-  final Map<String, int> prices = {
+  String payment = 'Tunai';
+  final plate = TextEditingController();
+  final selected = <String>{};
+
+  final vehiclePrices = {
     'Motor Kecil': 15000,
     'Motor Besar': 18000,
     'Mobil': 50000,
+  };
+
+  final servicePrices = {
     'Fogging': 30000,
     'Wax': 15000,
     'Foam Interior': 15000,
     'Foam Mesin': 15000,
   };
-  final Set<String> extras = {};
 
   int get total =>
-      prices[vehicle]! + extras.fold<int>(0, (sum, x) => sum + prices[x]!);
-
-  Future<void> checkout() async {
-    await store.addSale(Sale(
-      vehicle: vehicle,
-      services: [vehicle, ...extras],
-      total: total,
-      date: DateTime.now(),
-    ));
-    if (!mounted) return;
-    setState(() => extras.clear());
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Transaksi berhasil disimpan')),
-    );
-  }
+      (vehiclePrices[vehicle] ?? 0) +
+      selected.fold(0, (sum, name) => sum + (servicePrices[name] ?? 0));
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text('Kasir',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 18),
-          const Text('Jenis Kendaraan',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: ['Motor Kecil', 'Motor Besar', 'Mobil'].map((x) {
-              return ChoiceChip(
-                label: Text('$x • ${rupiah(prices[x]!)}'),
-                selected: vehicle == x,
-                onSelected: (_) => setState(() => vehicle = x),
-              );
-            }).toList(),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 24),
+      children: [
+        const Text('Kasir', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 6),
+        const Text('Catat kendaraan dan pembayaran'),
+        const SizedBox(height: 22),
+        TextField(
+          controller: plate,
+          textCapitalization: TextCapitalization.characters,
+          decoration: InputDecoration(
+            labelText: 'Nomor Polisi (Nopol)',
+            hintText: 'Contoh: E 1234 AB',
+            prefixIcon: const Icon(Icons.directions_car_filled_rounded),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
           ),
-          const SizedBox(height: 22),
-          const Text('Layanan Tambahan',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          ...['Fogging', 'Wax', 'Foam Interior', 'Foam Mesin'].map((x) {
-            return CheckboxListTile(
+        ),
+        const SizedBox(height: 20),
+        const Text('Jenis Kendaraan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 10),
+        ...vehiclePrices.keys.map((v) => _vehicleButton(v)),
+        const SizedBox(height: 15),
+        const Text('Layanan Tambahan', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        ...servicePrices.keys.map((s) => CheckboxListTile(
+              value: selected.contains(s),
+              onChanged: (v) => setState(() => v == true ? selected.add(s) : selected.remove(s)),
+              title: Text(s),
+              subtitle: Text(rupiah(servicePrices[s]!)),
+              secondary: Icon(_serviceIcon(s)),
               contentPadding: EdgeInsets.zero,
-              title: Text(x),
-              subtitle: Text(rupiah(prices[x]!)),
-              value: extras.contains(x),
-              onChanged: (v) => setState(() {
-                v == true ? extras.add(x) : extras.remove(x);
-              }),
-            );
-          }),
-          const Divider(height: 30),
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('TOTAL', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            Text(rupiah(total),
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          ]),
-          const SizedBox(height: 18),
-          FilledButton.icon(
-            onPressed: checkout,
-            icon: const Icon(Icons.check),
-            label: const Padding(
-              padding: EdgeInsets.all(14),
-              child: Text('SIMPAN TRANSAKSI'),
-            ),
+            )),
+        const SizedBox(height: 12),
+        const Text('Pembayaran', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'Tunai', label: Text('Tunai'), icon: Icon(Icons.payments)),
+            ButtonSegment(value: 'QRIS', label: Text('QRIS'), icon: Icon(Icons.qr_code_2)),
+            ButtonSegment(value: 'Transfer', label: Text('Transfer'), icon: Icon(Icons.account_balance)),
+          ],
+          selected: {payment},
+          onSelectionChanged: (v) => setState(() => payment = v.first),
+        ),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+          child: Row(
+            children: [
+              const Expanded(child: Text('TOTAL', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900))),
+              Text(rupiah(total), style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
+            ],
           ),
-        ],
+        ),
+        const SizedBox(height: 14),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
+          onPressed: _save,
+          icon: const Icon(Icons.check_circle),
+          label: const Text('Simpan Transaksi'),
+        ),
+      ],
+    );
+  }
+
+  Widget _vehicleButton(String v) {
+    final active = vehicle == v;
+    final icon = v == 'Mobil'
+        ? Icons.directions_car_filled_rounded
+        : Icons.two_wheeler_rounded;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.all(15),
+          backgroundColor: active ? const Color(0xFFE7EFFF) : Colors.white,
+          side: BorderSide(color: active ? const Color(0xFF155EEF) : Colors.grey.shade300),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        ),
+        onPressed: () => setState(() => vehicle = v),
+        child: Row(children: [
+          Icon(icon),
+          const SizedBox(width: 12),
+          Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.w800))),
+          Text(rupiah(vehiclePrices[v]!)),
+          if (active) const Padding(
+            padding: EdgeInsets.only(left: 10),
+            child: Icon(Icons.check_circle),
+          )
+        ]),
       ),
+    );
+  }
+
+  IconData _serviceIcon(String s) {
+    if (s == 'Fogging') return Icons.air;
+    if (s == 'Wax') return Icons.auto_awesome;
+    if (s == 'Foam Interior') return Icons.airline_seat_recline_normal;
+    return Icons.settings;
+  }
+
+  void _save() {
+    if (plate.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nopol wajib diisi.')),
+      );
+      return;
+    }
+    widget.onSave(Sale(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      date: DateTime.now(),
+      vehicle: vehicle,
+      plate: plate.text.trim().toUpperCase(),
+      basePrice: vehiclePrices[vehicle]!,
+      services: selected.toList(),
+      total: total,
+      payment: payment,
+    ));
+    plate.clear();
+    setState(() {
+      selected.clear();
+      vehicle = 'Mobil';
+      payment = 'Tunai';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Transaksi berhasil disimpan.')),
     );
   }
 }
 
 class TransactionsPage extends StatelessWidget {
-  const TransactionsPage({super.key});
+  final List<Sale> sales;
+  const TransactionsPage({super.key, required this.sales});
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text('Riwayat Transaksi',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 15),
-          if (store.sales.isEmpty)
-            const Center(child: Padding(
-              padding: EdgeInsets.all(40),
-              child: Text('Belum ada transaksi'),
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Text('Transaksi', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        Text('${sales.length} transaksi tersimpan'),
+        const SizedBox(height: 16),
+        if (sales.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 80),
+            child: Center(child: Text('Belum ada transaksi.')),
+          ),
+        ...sales.map((s) => Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 9),
+              child: ListTile(
+                leading: CircleAvatar(
+                  child: Icon(s.vehicle == 'Mobil'
+                      ? Icons.directions_car_filled
+                      : Icons.two_wheeler),
+                ),
+                title: Text('${s.vehicle} • ${s.plate}',
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text('${dateText(s.date)} • ${s.payment}\n'
+                    '${s.services.isEmpty ? 'Cuci standar' : s.services.join(', ')}'),
+                isThreeLine: true,
+                trailing: Text(rupiah(s.total),
+                    style: const TextStyle(fontWeight: FontWeight.w900)),
+              ),
             )),
-          ...store.sales.map((s) => Card(
-                child: ListTile(
-                  leading: const CircleAvatar(child: Icon(Icons.local_car_wash)),
-                  title: Text(s.vehicle),
-                  subtitle: Text(
-                    '${DateFormat('dd/MM/yyyy HH:mm').format(s.date)}\n${s.services.join(', ')}',
-                  ),
-                  isThreeLine: true,
-                  trailing: Text(rupiah(s.total),
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              )),
-        ],
-      ),
+      ],
     );
   }
 }
 
-class ExpensesPage extends StatefulWidget {
-  const ExpensesPage({super.key});
+class KasPage extends StatefulWidget {
+  final List<Sale> sales;
+  final List<Expense> expenses;
+  final ValueChanged<Expense> onSaveExpense;
+
+  const KasPage({
+    super.key,
+    required this.sales,
+    required this.expenses,
+    required this.onSaveExpense,
+  });
 
   @override
-  State<ExpensesPage> createState() => _ExpensesPageState();
+  State<KasPage> createState() => _KasPageState();
 }
 
-class _ExpensesPageState extends State<ExpensesPage> {
-  final amount = TextEditingController();
+class _KasPageState extends State<KasPage> {
+  String fund = 'Kas Operasional';
+  String category = 'UM (Uang Makan)';
   final note = TextEditingController();
-  String category = 'Operasional';
+  final amount = TextEditingController();
 
-  Future<void> save() async {
-    final n = int.tryParse(amount.text.replaceAll(RegExp(r'[^0-9]'), ''));
-    if (n == null || n <= 0) return;
-    await store.addExpense(Expense(
-      category: category,
-      note: note.text.isEmpty ? category : note.text,
-      amount: n,
-      date: DateTime.now(),
-    ));
-    amount.clear();
-    note.clear();
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Pengeluaran disimpan')));
-    }
-  }
+  final categories = {
+    'Kas Operasional': ['UM (Uang Makan)', 'Gaji Karyawan', 'BON Karyawan', 'Lainnya'],
+    'Kas Modal': ['Shampo', 'Semir', 'Listrik', 'WiFi', 'Bahan Lainnya', 'Peralatan'],
+    'Dana Darurat': ['Kebutuhan Darurat', 'Perbaikan Mendesak', 'Lainnya'],
+  };
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.all(20),
+    final omzet = sumSales(widget.sales);
+    final modalIn = (omzet * .30).round();
+    final daruratIn = (omzet * .02).round();
+    final opIn = omzet - modalIn - daruratIn;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 30),
+      children: [
+        const Text('Kas & Pengeluaran', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 18),
+        Row(
+          children: [
+            Expanded(child: _balance('Kas Modal', modalIn - sumFundExpenses(widget.expenses, 'Kas Modal'))),
+            const SizedBox(width: 8),
+            Expanded(child: _balance('Darurat', daruratIn - sumFundExpenses(widget.expenses, 'Dana Darurat'))),
+          ],
+        ),
+        const SizedBox(height: 8),
+        _balance('Kas Operasional', opIn - sumFundExpenses(widget.expenses, 'Kas Operasional')),
+        const SizedBox(height: 24),
+        const Text('Input Pengeluaran', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+          value: fund,
+          decoration: const InputDecoration(labelText: 'Sumber Kas', border: OutlineInputBorder()),
+          items: categories.keys.map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(),
+          onChanged: (v) => setState(() {
+            fund = v!;
+            category = categories[fund]!.first;
+          }),
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(
+          value: category,
+          decoration: const InputDecoration(labelText: 'Kategori Pengeluaran', border: OutlineInputBorder()),
+          items: categories[fund]!.map((x) => DropdownMenuItem(value: x, child: Text(x))).toList(),
+          onChanged: (v) => setState(() => category = v!),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: note,
+          decoration: const InputDecoration(labelText: 'Keterangan / Nama', border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: amount,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Nominal',
+            prefixText: 'Rp ',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+          onPressed: _save,
+          icon: const Icon(Icons.save),
+          label: const Text('Simpan Pengeluaran'),
+        ),
+        const SizedBox(height: 22),
+        const Text('Riwayat Pengeluaran', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        ...widget.expenses.take(20).map((e) => Card(
+              elevation: 0,
+              child: ListTile(
+                leading: const Icon(Icons.remove_circle_outline),
+                title: Text('${e.category} • ${e.fund}',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                subtitle: Text('${e.note.isEmpty ? '-' : e.note} • ${dateText(e.date)}'),
+                trailing: Text(rupiah(e.amount),
+                    style: const TextStyle(fontWeight: FontWeight.w900)),
+              ),
+            )),
+      ],
+    );
+  }
+
+  Widget _balance(String title, int value) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(17)),
+      child: Row(
         children: [
-          const Text('Pengeluaran',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            value: category,
-            decoration: const InputDecoration(
-              labelText: 'Kategori',
-              border: OutlineInputBorder(),
-            ),
-            items: ['Modal/Bahan', 'Operasional', 'Listrik', 'WiFi', 'Gaji', 'Manager', 'Lainnya']
-                .map((x) => DropdownMenuItem(value: x, child: Text(x)))
-                .toList(),
-            onChanged: (x) => setState(() => category = x!),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: note,
-            decoration: const InputDecoration(
-              labelText: 'Keterangan',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: amount,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
-              labelText: 'Nominal',
-              prefixText: 'Rp ',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: save, child: const Text('SIMPAN PENGELUARAN')),
-          const SizedBox(height: 20),
-          ...store.expenses.map((e) => Card(
-                child: ListTile(
-                  title: Text(e.category),
-                  subtitle: Text('${e.note}\n${DateFormat('dd/MM/yyyy HH:mm').format(e.date)}'),
-                  isThreeLine: true,
-                  trailing: Text(rupiah(e.amount)),
-                ),
-              )),
+          Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800))),
+          Text(rupiah(value), style: const TextStyle(fontWeight: FontWeight.w900)),
         ],
       ),
     );
   }
+
+  void _save() {
+    final n = int.tryParse(amount.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+    if (n <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nominal belum benar.')),
+      );
+      return;
+    }
+    widget.onSaveExpense(Expense(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      date: DateTime.now(),
+      fund: fund,
+      category: category,
+      note: note.text.trim(),
+      amount: n,
+    ));
+    note.clear();
+    amount.clear();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Pengeluaran tersimpan.')),
+    );
+  }
 }
 
-class ReportsPage extends StatelessWidget {
-  const ReportsPage({super.key});
+class ReportPage extends StatelessWidget {
+  final List<Sale> sales;
+  final List<Expense> expenses;
+
+  const ReportPage({super.key, required this.sales, required this.expenses});
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-    final sales = store.sales.where((x) => x.date.year == now.year && x.date.month == now.month);
-    final expenses = store.expenses.where((x) => x.date.year == now.year && x.date.month == now.month);
-    final omzet = sales.fold<int>(0, (a, b) => a + b.total);
-    final biaya = expenses.fold<int>(0, (a, b) => a + b.amount);
+    final omzet = sumSales(sales);
+    final modalIn = (omzet * .30).round();
+    final daruratIn = (omzet * .02).round();
+    final opIn = omzet - modalIn - daruratIn;
 
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text('Laporan Bulanan',
-              style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-          Text(DateFormat('MMMM yyyy', 'id_ID').format(now)),
-          const SizedBox(height: 22),
-          Card(child: ListTile(title: const Text('Omzet'), trailing: Text(rupiah(omzet)))),
-          Card(child: ListTile(title: const Text('Total Pengeluaran'), trailing: Text(rupiah(biaya)))),
-          Card(
-            child: ListTile(
-              title: const Text('LABA BERSIH', style: TextStyle(fontWeight: FontWeight.bold)),
-              trailing: Text(rupiah(omzet - biaya),
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
-            ),
+    final modalOut = sumFundExpenses(expenses, 'Kas Modal');
+    final daruratOut = sumFundExpenses(expenses, 'Dana Darurat');
+    final opOut = sumFundExpenses(expenses, 'Kas Operasional');
+
+    final profit = opIn - opOut;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 30),
+      children: [
+        const Text('Laporan', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 6),
+        Text(DateFormat('MMMM yyyy', 'id_ID').format(DateTime.now())),
+        const SizedBox(height: 18),
+        _section('Omzet', [
+          ['Total Omzet', omzet],
+          ['Kas Modal 30%', modalIn],
+          ['Dana Darurat 2%', daruratIn],
+          ['Kas Operasional 68%', opIn],
+        ]),
+        _section('Kas Modal', [
+          ['Pemasukan', modalIn],
+          ['Pengeluaran', modalOut],
+          ['Saldo', modalIn - modalOut],
+        ]),
+        _section('Dana Darurat', [
+          ['Pemasukan', daruratIn],
+          ['Pengeluaran', daruratOut],
+          ['Saldo', daruratIn - daruratOut],
+        ]),
+        _section('Kas Operasional', [
+          ['Pemasukan', opIn],
+          ['Pengeluaran', opOut],
+          ['Saldo / Profit Bersih', profit],
+        ]),
+        Container(
+          margin: const EdgeInsets.only(top: 4),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111827),
+            borderRadius: BorderRadius.circular(20),
           ),
-          const SizedBox(height: 18),
-          Text('Jumlah transaksi: ${sales.length}'),
-          Text('Jumlah kendaraan: ${sales.length}'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('PROFIT BERSIH',
+                  style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 7),
+              Text(rupiah(profit),
+                  style: const TextStyle(color: Colors.white, fontSize: 29, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 7),
+              const Text('Kas Operasional 68% - Pengeluaran Operasional',
+                  style: TextStyle(color: Colors.white70)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _section(String title, List<List<dynamic>> rows) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+          const Divider(height: 20),
+          ...rows.map((r) => Padding(
+                padding: const EdgeInsets.only(bottom: 9),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(r[0] as String)),
+                    Text(rupiah(r[1] as int),
+                        style: const TextStyle(fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              )),
         ],
       ),
     );
