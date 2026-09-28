@@ -3,8 +3,16 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: 'https://konlgevoddlbdxnbxltp.supabase.co',
+    publishableKey: 'sb_publishable_vObTOVLHCGZz-8-pDSunvA_707UaXOs',
+  );
+
   runApp(const EbolWashpointApp());
 }
 
