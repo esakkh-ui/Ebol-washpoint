@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'services/cloud_storage_service.dart';
+import 'services/local_storage_service.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
@@ -354,6 +356,7 @@ class _EbolWashpointAppState extends State<EbolWashpointApp> {
   final List<Expense> expenses = [];
   final List<WashQueueItem> queueItems = [];
   int tab = 0;
+  bool isLoading = true;
 
   @override
   void initState() {
@@ -361,45 +364,87 @@ class _EbolWashpointAppState extends State<EbolWashpointApp> {
     _load();
   }
 
+  /// Load data dari cloud terlebih dahulu, jika gagal gunakan local storage
   Future<void> _load() async {
-    final p = await SharedPreferences.getInstance();
-    final rawSales = p.getString('sales');
-    final rawExpenses = p.getString('expenses');
-    final rawQueue = p.getString('queueItems');
+    try {
+      print('🔄 Memuat data...');
+      
+      // Coba load dari cloud dulu
+      final cloudData = await CloudStorageService.loadData();
+      
+      // Jika cloud kosong, coba dari local
+      if ((cloudData['sales'] as List).isEmpty &&
+          (cloudData['expenses'] as List).isEmpty &&
+          (cloudData['queue_items'] as List).isEmpty) {
+        print('☁️ Cloud kosong, mengambil dari local...');
+        final localData = await LocalStorageService.loadData();
+        cloudData['sales'] = localData['sales'];
+        cloudData['expenses'] = localData['expenses'];
+        cloudData['queue_items'] = localData['queue_items'];
+      }
 
-    if (rawSales != null) {
-      sales.addAll((jsonDecode(rawSales) as List)
-          .map((e) => Sale.fromJson(Map<String, dynamic>.from(e))));
-    }
+      // Parse dan load semua data
+      final cloudSales = cloudData['sales'] as List? ?? [];
+      final cloudExpenses = cloudData['expenses'] as List? ?? [];
+      final cloudQueueItems = cloudData['queue_items'] as List? ?? [];
 
-    if (rawExpenses != null) {
-      expenses.addAll((jsonDecode(rawExpenses) as List)
-          .map((e) => Expense.fromJson(Map<String, dynamic>.from(e))));
-    }
+      sales.clear();
+      sales.addAll(cloudSales
+          .map((e) => Sale.fromJson(Map<String, dynamic>.from(e as Map))));
 
-    if (rawQueue != null) {
-      final parsed = (jsonDecode(rawQueue) as List)
-          .map((e) => WashQueueItem.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
-      queueItems.addAll(parsed);
+      expenses.clear();
+      expenses.addAll(cloudExpenses
+          .map((e) => Expense.fromJson(Map<String, dynamic>.from(e as Map))));
 
+      queueItems.clear();
+      queueItems.addAll(cloudQueueItems.map(
+          (e) => WashQueueItem.fromJson(Map<String, dynamic>.from(e as Map))));
+
+      // Schedule payment reminders
       for (final item in queueItems) {
         if (item.status == 'waiting' && item.dueAt.isAfter(DateTime.now())) {
           await _schedulePaymentReminder(item);
         }
       }
-    }
 
-    if (mounted) setState(() {});
+      print('✅ Data berhasil dimuat: ${sales.length} sales, ${queueItems.length} antrian');
+      
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('❌ Error loading data: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
   }
 
+  /// Simpan data ke cloud dan local
   Future<void> _save() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setString('sales', jsonEncode(sales.map((e) => e.toJson()).toList()));
-    await p.setString(
-        'expenses', jsonEncode(expenses.map((e) => e.toJson()).toList()));
-    await p.setString(
-        'queueItems', jsonEncode(queueItems.map((e) => e.toJson()).toList()));
+    try {
+      // Simpan ke cloud (async, tidak perlu tunggu)
+      CloudStorageService.saveData(
+        sales: sales,
+        expenses: expenses,
+        queueItems: queueItems,
+      ).catchError((e) {
+        print('⚠️ Cloud save error (local tetap tersimpan): $e');
+      });
+
+      // Simpan ke local (backup)
+      await LocalStorageService.saveData(
+        sales: sales,
+        expenses: expenses,
+        queueItems: queueItems,
+      );
+    } catch (e) {
+      print('❌ Error saving data: $e');
+    }
   }
 
   void addSale(Sale sale) {
@@ -412,53 +457,53 @@ class _EbolWashpointAppState extends State<EbolWashpointApp> {
     _save();
   }
 
-void addQueueItem(WashQueueItem item) {
-  setState(() {
-    queueItems.insert(0, item);
-  });
+  void addQueueItem(WashQueueItem item) {
+    setState(() {
+      queueItems.insert(0, item);
+    });
 
-  _save();
+    _save();
 
-  _schedulePaymentReminder(item).catchError((error) {
-    debugPrint('Reminder error: $error');
-  });
-}
-
-void markQueuePaid(String queueId) {
-  final index = queueItems.indexWhere((item) => item.id == queueId);
-
-  if (index < 0) return;
-
-  final item = queueItems[index];
-
-  int basePrice = 0;
-
-  if (item.vehicle == 'Mobil') {
-    basePrice = 50000;
-  } else if (item.vehicle == 'Motor Besar') {
-    basePrice = 18000;
-  } else if (item.vehicle == 'Motor Kecil') {
-    basePrice = 15000;
+    _schedulePaymentReminder(item).catchError((error) {
+      debugPrint('Reminder error: $error');
+    });
   }
 
-  final sale = Sale(
-    id: item.id,
-    date: DateTime.now(),
-    vehicle: item.vehicle,
-    plate: item.plate,
-    basePrice: basePrice,
-    services: item.services,
-    total: item.total,
-    payment: 'Tunai',
-  );
+  void markQueuePaid(String queueId) {
+    final index = queueItems.indexWhere((item) => item.id == queueId);
 
-  setState(() {
-    queueItems[index] = item.copyWith(status: 'completed');
-    sales.insert(0, sale);
-  });
+    if (index < 0) return;
 
-  _save();
-}
+    final item = queueItems[index];
+
+    int basePrice = 0;
+
+    if (item.vehicle == 'Mobil') {
+      basePrice = 50000;
+    } else if (item.vehicle == 'Motor Besar') {
+      basePrice = 18000;
+    } else if (item.vehicle == 'Motor Kecil') {
+      basePrice = 15000;
+    }
+
+    final sale = Sale(
+      id: item.id,
+      date: DateTime.now(),
+      vehicle: item.vehicle,
+      plate: item.plate,
+      basePrice: basePrice,
+      services: item.services,
+      total: item.total,
+      payment: 'Tunai',
+    );
+
+    setState(() {
+      queueItems[index] = item.copyWith(status: 'completed');
+      sales.insert(0, sale);
+    });
+
+    _save();
+  }
 
   Future<void> _schedulePaymentReminder(WashQueueItem item) async {
     final now = DateTime.now();
@@ -493,6 +538,30 @@ void markQueuePaid(String queueId) {
 
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'EBOL WASHPOINT',
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF155EEF)),
+          scaffoldBackgroundColor: const Color(0xFFF7F8FC),
+        ),
+        home: Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                const Text('Memuat data...'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final pages = [
       HomePage(
         sales: sales,
@@ -907,8 +976,6 @@ class _KasirPageState extends State<KasirPage> {
     final queueId = now.microsecondsSinceEpoch.toString();
     final plateText = plate.text.trim().toUpperCase();
 
-    
-
     final queueItem = WashQueueItem(
       id: queueId,
       plate: plateText,
@@ -920,7 +987,6 @@ class _KasirPageState extends State<KasirPage> {
       status: 'waiting',
     );
 
-    
     widget.onQueue(queueItem);
 
     plate.clear();
@@ -1088,25 +1154,12 @@ class _KasPageState extends State<KasPage> {
 
   @override
   Widget build(BuildContext context) {
-    final omzet = sumSales(widget.sales);
-    final modalIn = (omzet * .30).round();
-    final daruratIn = (omzet * .02).round();
-    final opIn = omzet - modalIn - daruratIn;
-
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 30),
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 24),
       children: [
-        const Text('Kas & Pengeluaran', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
-        const SizedBox(height: 18),
-        Row(
-          children: [
-            Expanded(child: _balance('Kas Modal', modalIn - sumFundExpenses(widget.expenses, 'Kas Modal'))),
-            const SizedBox(width: 8),
-            Expanded(child: _balance('Darurat', daruratIn - sumFundExpenses(widget.expenses, 'Dana Darurat'))),
-          ],
-        ),
-        const SizedBox(height: 8),
-        _balance('Kas Operasional', opIn - sumFundExpenses(widget.expenses, 'Kas Operasional')),
+        const Text('Kas', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 6),
+        const Text('Kelola pengeluaran dan kas'),
         const SizedBox(height: 24),
         const Text('Input Pengeluaran', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
         const SizedBox(height: 10),
@@ -1156,33 +1209,19 @@ class _KasPageState extends State<KasPage> {
               child: ListTile(
                 leading: const Icon(Icons.remove_circle_outline),
                 title: Text('${e.category} • ${e.fund}',
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: Text('${e.note.isEmpty ? '-' : e.note} • ${dateText(e.date)}'),
-                trailing: Text(rupiah(e.amount),
-                    style: const TextStyle(fontWeight: FontWeight.w900)),
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text('${dateText(e.date)}\n${e.note}'),
+                isThreeLine: true,
+                trailing: Text(rupiah(e.amount), style: const TextStyle(fontWeight: FontWeight.w800)),
               ),
             )),
       ],
     );
   }
 
-  Widget _balance(String title, int value) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(17)),
-      child: Row(
-        children: [
-          Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800))),
-          Text(rupiah(value), style: const TextStyle(fontWeight: FontWeight.w900)),
-        ],
-      ),
-    );
-  }
-
   void _save() {
-    final n = int.tryParse(amount.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-    if (n <= 0) {
+    final n = int.tryParse(amount.text.replaceAll('.', '').replaceAll(',', ''));
+    if (n == null || n <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Nominal belum benar.')),
       );
@@ -1224,18 +1263,12 @@ class ReportPage extends StatelessWidget {
     final profit = opIn - opOut;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 30),
+      padding: const EdgeInsets.all(20),
       children: [
-        const Text('Laporan', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
-        const SizedBox(height: 6),
+        const Text('Laporan Bulanan', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
         Text(DateFormat('MMMM yyyy', 'id_ID').format(DateTime.now())),
-        const SizedBox(height: 18),
-        _section('Omzet', [
-          ['Total Omzet', omzet],
-          ['Kas Modal 30%', modalIn],
-          ['Dana Darurat 2%', daruratIn],
-          ['Kas Operasional 68%', opIn],
-        ]),
+        const SizedBox(height: 24),
         _section('Kas Modal', [
           ['Pemasukan', modalIn],
           ['Pengeluaran', modalOut],
@@ -1267,8 +1300,6 @@ class ReportPage extends StatelessWidget {
               Text(rupiah(profit),
                   style: const TextStyle(color: Colors.white, fontSize: 29, fontWeight: FontWeight.w900)),
               const SizedBox(height: 7),
-              const Text('Kas Operasional 68% - Pengeluaran Operasional',
-                  style: TextStyle(color: Colors.white70)),
             ],
           ),
         ),
@@ -1278,27 +1309,36 @@ class ReportPage extends StatelessWidget {
 
   Widget _section(String title, List<List<dynamic>> rows) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-          const Divider(height: 20),
-          ...rows.map((r) => Padding(
-                padding: const EdgeInsets.only(bottom: 9),
-                child: Row(
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+          const SizedBox(height: 12),
+          ...rows.asMap().entries.map((e) {
+            final isLast = e.key == rows.length - 1;
+            return Column(
+              children: [
+                Row(
                   children: [
-                    Expanded(child: Text(r[0] as String)),
-                    Text(rupiah(r[1] as int),
-                        style: const TextStyle(fontWeight: FontWeight.w800)),
+                    Expanded(child: Text(e.value[0] as String)),
+                    Text(rupiah(e.value[1] as int),
+                        style: TextStyle(
+                            fontWeight: isLast ? FontWeight.w900 : FontWeight.normal)),
                   ],
                 ),
-              )),
+                if (!isLast) const Divider(height: 16),
+              ],
+            );
+          }),
         ],
       ),
     );
   }
 }
-
