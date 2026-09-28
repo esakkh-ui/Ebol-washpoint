@@ -9,6 +9,8 @@ environment:
 dependencies:
   supabase_flutter: ^2.14.2
   app_links: 6.4.0
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.10.1
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8

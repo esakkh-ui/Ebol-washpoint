@@ -1,24 +1,48 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
+
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  tz.initializeTimeZones();
+
   await Supabase.initialize(
-  url: 'https://konlgevoddlbdxnbxltp.supabase.co',
-  publishableKey: 'sb_publishable_vObTOVLHCGZz-8-pDSunvA_707UaXOs',
-);
+    url: 'https://konlgevoddlbdxnbxltp.supabase.co',
+    publishableKey: 'sb_publishable_vObTOVLHCGZz-8-pDSunvA_707UaXOs',
+  );
+
+  const AndroidInitializationSettings androidSettings =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+  const DarwinInitializationSettings iosSettings =
+      DarwinInitializationSettings();
+  const InitializationSettings initSettings = InitializationSettings(
+    android: androidSettings,
+    iOS: iosSettings,
+  );
+
+  await flutterLocalNotificationsPlugin.initialize(initSettings);
+
+  final androidImplementation =
+      flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+  await androidImplementation?.requestNotificationsPermission();
 
   runApp(
-  const MaterialApp(
-    debugShowCheckedModeBanner: false,
-    home: LoginPage(),
-  ),
-);
+    const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: LoginPage(),
+    ),
+  );
 }
 
 class Sale {
@@ -100,6 +124,90 @@ class Expense {
         amount: j['amount'],
       );
 }
+
+class WashQueueItem {
+  final String id;
+  final String plate;
+  final String vehicle;
+  final List<String> services;
+  final int total;
+  final DateTime createdAt;
+  final DateTime dueAt;
+  final String status;
+
+  const WashQueueItem({
+    required this.id,
+    required this.plate,
+    required this.vehicle,
+    required this.services,
+    required this.total,
+    required this.createdAt,
+    required this.dueAt,
+    required this.status,
+  });
+
+  String get statusText {
+    switch (status) {
+      case 'paid':
+        return 'Sudah dibayar';
+      case 'processing':
+        return 'Sedang dicuci';
+      default:
+        return 'Menunggu pembayaran';
+    }
+  }
+
+  WashQueueItem copyWith({
+    String? id,
+    String? plate,
+    String? vehicle,
+    List<String>? services,
+    int? total,
+    DateTime? createdAt,
+    DateTime? dueAt,
+    String? status,
+  }) {
+    return WashQueueItem(
+      id: id ?? this.id,
+      plate: plate ?? this.plate,
+      vehicle: vehicle ?? this.vehicle,
+      services: services ?? this.services,
+      total: total ?? this.total,
+      createdAt: createdAt ?? this.createdAt,
+      dueAt: dueAt ?? this.dueAt,
+      status: status ?? this.status,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'plate': plate,
+        'vehicle': vehicle,
+        'services': services,
+        'total': total,
+        'createdAt': createdAt.toIso8601String(),
+        'dueAt': dueAt.toIso8601String(),
+        'status': status,
+      };
+
+  factory WashQueueItem.fromJson(Map<String, dynamic> json) {
+    final createdAt = DateTime.tryParse(json['createdAt'] ?? '') ?? DateTime.now();
+    final dueAt = DateTime.tryParse(json['dueAt'] ?? '') ??
+        createdAt.add(const Duration(minutes: 60));
+
+    return WashQueueItem(
+      id: json['id'] ?? DateTime.now().microsecondsSinceEpoch.toString(),
+      plate: json['plate'] ?? '-',
+      vehicle: json['vehicle'] ?? 'Mobil',
+      services: List<String>.from(json['services'] ?? []),
+      total: (json['total'] ?? 0) as int,
+      createdAt: createdAt,
+      dueAt: dueAt,
+      status: json['status'] ?? 'waiting',
+    );
+  }
+}
+
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -233,6 +341,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 }
+
 class EbolWashpointApp extends StatefulWidget {
   const EbolWashpointApp({super.key});
 
@@ -243,6 +352,7 @@ class EbolWashpointApp extends StatefulWidget {
 class _EbolWashpointAppState extends State<EbolWashpointApp> {
   final List<Sale> sales = [];
   final List<Expense> expenses = [];
+  final List<WashQueueItem> queueItems = [];
   int tab = 0;
 
   @override
@@ -255,14 +365,31 @@ class _EbolWashpointAppState extends State<EbolWashpointApp> {
     final p = await SharedPreferences.getInstance();
     final rawSales = p.getString('sales');
     final rawExpenses = p.getString('expenses');
+    final rawQueue = p.getString('queueItems');
+
     if (rawSales != null) {
       sales.addAll((jsonDecode(rawSales) as List)
           .map((e) => Sale.fromJson(Map<String, dynamic>.from(e))));
     }
+
     if (rawExpenses != null) {
       expenses.addAll((jsonDecode(rawExpenses) as List)
           .map((e) => Expense.fromJson(Map<String, dynamic>.from(e))));
     }
+
+    if (rawQueue != null) {
+      final parsed = (jsonDecode(rawQueue) as List)
+          .map((e) => WashQueueItem.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      queueItems.addAll(parsed);
+
+      for (final item in queueItems) {
+        if (item.status == 'waiting' && item.dueAt.isAfter(DateTime.now())) {
+          await _schedulePaymentReminder(item);
+        }
+      }
+    }
+
     if (mounted) setState(() {});
   }
 
@@ -271,6 +398,8 @@ class _EbolWashpointAppState extends State<EbolWashpointApp> {
     await p.setString('sales', jsonEncode(sales.map((e) => e.toJson()).toList()));
     await p.setString(
         'expenses', jsonEncode(expenses.map((e) => e.toJson()).toList()));
+    await p.setString(
+        'queueItems', jsonEncode(queueItems.map((e) => e.toJson()).toList()));
   }
 
   void addSale(Sale sale) {
@@ -283,12 +412,71 @@ class _EbolWashpointAppState extends State<EbolWashpointApp> {
     _save();
   }
 
+  void addQueueItem(WashQueueItem item) {
+    setState(() => queueItems.insert(0, item));
+    _schedulePaymentReminder(item);
+    _save();
+  }
+
+  void markQueuePaid(String queueId) {
+    setState(() {
+      final index = queueItems.indexWhere((item) => item.id == queueId);
+      if (index >= 0) {
+        final item = queueItems[index];
+        queueItems[index] = item.copyWith(status: 'paid');
+      }
+    });
+    _save();
+  }
+
+  Future<void> _schedulePaymentReminder(WashQueueItem item) async {
+    final now = DateTime.now();
+    if (!item.dueAt.isAfter(now)) {
+      return;
+    }
+
+    final scheduledAt = tz.TZDateTime.from(item.dueAt, tz.local);
+    final title = 'Pembayaran mobil ${item.plate}';
+    final body = 'Mobil ${item.plate} sudah masuk antrian ${item.vehicle} dan menunggu pembayaran sejak 60 menit yang lalu.';
+
+    await flutterLocalNotificationsPlugin.zonedSchedule(
+      int.tryParse(item.id) ?? DateTime.now().millisecondsSinceEpoch,
+      title,
+      body,
+      scheduledAt,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'washpoint_payment_reminder',
+          'Pembayaran Cuci',
+          channelDescription: 'Pengingat pembayaran kendaraan yang masuk antrian',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(),
+      ),
+      androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
-      HomePage(sales: sales, expenses: expenses, onOpenKasir: () => setState(() => tab = 1)),
-      KasirPage(onSave: addSale),
+      HomePage(
+        sales: sales,
+        expenses: expenses,
+        onOpenKasir: () => setState(() => tab = 1),
+      ),
+      KasirPage(
+        onSave: addSale,
+        onQueue: addQueueItem,
+      ),
       TransactionsPage(sales: sales),
+      AntrianPage(
+        queueItems: queueItems,
+        onMarkPaid: markQueuePaid,
+      ),
       KasPage(sales: sales, expenses: expenses, onSaveExpense: addExpense),
       ReportPage(sales: sales, expenses: expenses),
     ];
@@ -311,6 +499,7 @@ class _EbolWashpointAppState extends State<EbolWashpointApp> {
             NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Home'),
             NavigationDestination(icon: Icon(Icons.point_of_sale_rounded), label: 'Kasir'),
             NavigationDestination(icon: Icon(Icons.receipt_long_rounded), label: 'Transaksi'),
+            NavigationDestination(icon: Icon(Icons.list_alt_rounded), label: 'Antrian'),
             NavigationDestination(icon: Icon(Icons.account_balance_wallet_rounded), label: 'Kas'),
             NavigationDestination(icon: Icon(Icons.bar_chart_rounded), label: 'Laporan'),
           ],
@@ -536,7 +725,13 @@ class HomePage extends StatelessWidget {
 
 class KasirPage extends StatefulWidget {
   final ValueChanged<Sale> onSave;
-  const KasirPage({super.key, required this.onSave});
+  final ValueChanged<WashQueueItem> onQueue;
+
+  const KasirPage({
+    super.key,
+    required this.onSave,
+    required this.onQueue,
+  });
 
   @override
   State<KasirPage> createState() => _KasirPageState();
@@ -676,16 +871,36 @@ class _KasirPageState extends State<KasirPage> {
       );
       return;
     }
-    widget.onSave(Sale(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      date: DateTime.now(),
+
+    final now = DateTime.now();
+    final queueId = now.microsecondsSinceEpoch.toString();
+    final plateText = plate.text.trim().toUpperCase();
+
+    final sale = Sale(
+      id: queueId,
+      date: now,
       vehicle: vehicle,
-      plate: plate.text.trim().toUpperCase(),
+      plate: plateText,
       basePrice: vehiclePrices[vehicle]!,
       services: selected.toList(),
       total: total,
       payment: payment,
-    ));
+    );
+
+    final queueItem = WashQueueItem(
+      id: queueId,
+      plate: plateText,
+      vehicle: vehicle,
+      services: selected.toList(),
+      total: total,
+      createdAt: now,
+      dueAt: now.add(const Duration(minutes: 60)),
+      status: 'waiting',
+    );
+
+    widget.onSave(sale);
+    widget.onQueue(queueItem);
+
     plate.clear();
     setState(() {
       selected.clear();
@@ -693,7 +908,7 @@ class _KasirPageState extends State<KasirPage> {
       payment = 'Tunai';
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Transaksi berhasil disimpan.')),
+      const SnackBar(content: Text('Transaksi dan antrian berhasil disimpan.')),
     );
   }
 }
@@ -734,6 +949,88 @@ class TransactionsPage extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w900)),
               ),
             )),
+      ],
+    );
+  }
+}
+
+class AntrianPage extends StatelessWidget {
+  final List<WashQueueItem> queueItems;
+  final ValueChanged<String> onMarkPaid;
+
+  const AntrianPage({
+    super.key,
+    required this.queueItems,
+    required this.onMarkPaid,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Text('Antrian Cuci', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        Text('${queueItems.length} kendaraan menunggu'),
+        const SizedBox(height: 16),
+        if (queueItems.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(top: 80),
+            child: Center(child: Text('Belum ada mobil di antrian.')),
+          ),
+        ...queueItems.map((item) {
+          final isLate = item.dueAt.isBefore(DateTime.now()) || item.dueAt.isAtSameMomentAs(DateTime.now());
+          final isPaid = item.status == 'paid';
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${item.vehicle} • ${item.plate}',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isPaid ? Colors.green.shade100 : (isLate ? Colors.orange.shade100 : Colors.blue.shade100),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          isPaid ? 'Sudah dibayar' : (isLate ? 'Menunggu bayar' : 'Antrian'),
+                          style: TextStyle(
+                            color: isPaid ? Colors.green.shade900 : (isLate ? Colors.orange.shade900 : Colors.blue.shade900),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text('Layanan: ${item.services.isEmpty ? 'Cuci standar' : item.services.join(', ')}'),
+                  const SizedBox(height: 4),
+                  Text('Waktu masuk: ${dateText(item.createdAt)}'),
+                  Text('Reminder pembayaran: ${dateText(item.dueAt)}'),
+                  if (!isPaid) ...[
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () => onMarkPaid(item.id),
+                      icon: const Icon(Icons.check_circle),
+                      label: const Text('Tandai Sudah Bayar'),
+                    )
+                  ]
+                ],
+              ),
+            ),
+          );
+        }),
       ],
     );
   }
@@ -982,3 +1279,4 @@ class ReportPage extends StatelessWidget {
     );
   }
 }
+
