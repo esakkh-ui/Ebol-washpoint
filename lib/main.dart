@@ -9,11 +9,16 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Supabase.initialize(
-    url: 'https://konlgevoddlbdxnbxltp.supabase.co',
-    publishableKey: 'sb_publishable_vObTOVLHCGZz-8-pDSunvA_707UaXOs',
-  );
+  url: 'https://konlgevoddlbdxnbxltp.supabase.co',
+  publishableKey: 'sb_publishable_vObTOVLHCGZz-8-pDSunvA_707UaXOs',
+);
 
-  runApp(const LoginPage());
+  runApp(
+  const MaterialApp(
+    debugShowCheckedModeBanner: false,
+    home: LoginPage(),
+  ),
+);
 }
 
 class Sale {
