@@ -412,11 +412,17 @@ class _EbolWashpointAppState extends State<EbolWashpointApp> {
     _save();
   }
 
-  void addQueueItem(WashQueueItem item) {
-    setState(() => queueItems.insert(0, item));
-    _schedulePaymentReminder(item);
-    _save();
-  }
+void addQueueItem(WashQueueItem item) {
+  setState(() {
+    queueItems.insert(0, item);
+  });
+
+  _save();
+
+  _schedulePaymentReminder(item).catchError((error) {
+    debugPrint('Reminder error: $error');
+  });
+}
 
 void markQueuePaid(String queueId) {
   final index = queueItems.indexWhere((item) => item.id == queueId);
@@ -901,16 +907,7 @@ class _KasirPageState extends State<KasirPage> {
     final queueId = now.microsecondsSinceEpoch.toString();
     final plateText = plate.text.trim().toUpperCase();
 
-    final sale = Sale(
-      id: queueId,
-      date: now,
-      vehicle: vehicle,
-      plate: plateText,
-      basePrice: vehiclePrices[vehicle]!,
-      services: selected.toList(),
-      total: total,
-      payment: payment,
-    );
+    
 
     final queueItem = WashQueueItem(
       id: queueId,
