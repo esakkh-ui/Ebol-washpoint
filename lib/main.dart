@@ -847,7 +847,7 @@ class _KasirPageState extends State<KasirPage> {
           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)),
           onPressed: _save,
           icon: const Icon(Icons.check_circle),
-          label: const Text('Simpan Transaksi'),
+          label: const Text('MASUKKAN ANTRIAN'),
         ),
       ],
     );
