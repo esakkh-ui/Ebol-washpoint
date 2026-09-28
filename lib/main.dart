@@ -418,16 +418,41 @@ class _EbolWashpointAppState extends State<EbolWashpointApp> {
     _save();
   }
 
-  void markQueuePaid(String queueId) {
-    setState(() {
-      final index = queueItems.indexWhere((item) => item.id == queueId);
-      if (index >= 0) {
-        final item = queueItems[index];
-        queueItems[index] = item.copyWith(status: 'paid');
-      }
-    });
-    _save();
+void markQueuePaid(String queueId) {
+  final index = queueItems.indexWhere((item) => item.id == queueId);
+
+  if (index < 0) return;
+
+  final item = queueItems[index];
+
+  int basePrice = 0;
+
+  if (item.vehicle == 'Mobil') {
+    basePrice = 50000;
+  } else if (item.vehicle == 'Motor Besar') {
+    basePrice = 18000;
+  } else if (item.vehicle == 'Motor Kecil') {
+    basePrice = 15000;
   }
+
+  final sale = Sale(
+    id: item.id,
+    date: DateTime.now(),
+    vehicle: item.vehicle,
+    plate: item.plate,
+    basePrice: basePrice,
+    services: item.services,
+    total: item.total,
+    payment: 'Tunai',
+  );
+
+  setState(() {
+    queueItems[index] = item.copyWith(status: 'completed');
+    sales.insert(0, sale);
+  });
+
+  _save();
+}
 
   Future<void> _schedulePaymentReminder(WashQueueItem item) async {
     final now = DateTime.now();
@@ -898,7 +923,7 @@ class _KasirPageState extends State<KasirPage> {
       status: 'waiting',
     );
 
-    widget.onSave(sale);
+    
     widget.onQueue(queueItem);
 
     plate.clear();
